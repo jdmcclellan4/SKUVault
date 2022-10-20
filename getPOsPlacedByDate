@@ -1,0 +1,85 @@
+### This Script pulls in all POs that are in SKU Vault and puts them into an excel, we'll use 
+#   all of the PO Created values to calculate average lead time when combined with other data ###
+
+
+# gets all libraries
+import numpy as np
+import pandas as pd
+import requests
+import shutil
+from time import sleep
+from datetime import date
+
+
+#This gets receiving history for all POs except for "Completed POs"
+
+url = "https://app.skuvault.com/api/purchaseorders/getPOs"
+
+payload = {
+    "ModifiedAfterDateTimeUtc": "minDate",
+    "ModifiedBeforeDateTimeUtc": "maxDate",
+    "Status": 'Everything except Completed',
+    "PageNumber": 0,
+    "IncludeProducts": True,
+    "TenantToken": TenantKey,
+    "UserToken": UserKey
+}
+headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+}
+
+response = requests.post(url, json=payload, headers=headers)
+json = response.json()
+
+sleep(15)
+
+#Get Completed POs
+curl = "https://app.skuvault.com/api/purchaseorders/getPOs"
+
+cpayload = {
+    "ModifiedAfterDateTimeUtc": "minDate",
+    "ModifiedBeforeDateTimeUtc": "maxDate",
+    "Status": "Completed",
+    "PageNumber": 0,
+    "IncludeProducts": True,
+    "TenantToken": TenantKey,
+    "UserToken": UserKey
+}
+cheaders = {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+}
+
+cresponse = requests.post(curl, json=cpayload, headers=cheaders)
+cjson = cresponse.json()
+
+sleep(15)
+
+#get all completed POs into a DataFrame
+df = pd.concat([pd.DataFrame.from_records(json['PurchaseOrders']),pd.DataFrame.from_records(cjson['PurchaseOrders'])])
+
+
+
+df['CreatedDate'] = pd.to_datetime(df['CreatedDate'], errors = 'coerce').dt.tz_localize(None)
+df['CovertedOrderDate'] = pd.to_datetime(df['OrderDate'], errors = 'coerce').dt.tz_localize(None)
+
+
+#"CreatedDate" here is from the API and it will be used as the date to calculate the lead time
+poappend = df[['PoNumber', 'Status', 'SupplierName','CreatedDate']].copy()
+#Change format of "CreatedDate" to a datetime string so that calculations can be done to find lead time in number of days
+poappend['POCreatedDate'] = poappend['CreatedDate'].apply(lambda x: x.strftime('%Y-%m-%d'))
+#dropping the non-datetime CreateDate column.
+poappend.drop('CreatedDate',inplace=True,axis=1)
+#adding a timestamp for the day these were all added to the receiving database
+poappend['DateAdded'] = pd.Timestamp.today().strftime('%Y-%m-%d')
+
+
+#This creates the file in excel and then we will move it to a new
+poappend.to_excel('POcreatedtable{}.xlsx'.format(date.today()))
+#moves file(as long as its in the same directory it was created in) and moves it to the folder that will have all the PO Create Date information
+sleep(3)
+try:
+    shutil.move('POcreatedtable{}.xlsx'.format(date.today()),'C:\POcreateddata')
+except:
+    print("File already Exists ", 'POcreatedtable{}.xlsx'.format(date.today()))
